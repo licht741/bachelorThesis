@@ -73,8 +73,6 @@ data SDoc next =
   | SToken Token (SDoc next)
 \end{lstlisting}
 
-При создании элементов типа SDoc может возникнуть проблема изменения типа выражения. Параметр next типа SDoc используется как неподвижная точка. Его использование позволяет сохранить исходный тип.
-
 SToken содержит некоторое выражение, которое необходимо окрасить и дополнительную информацию о типе выражения. Этот тип используется в дальнейшем для окраски выделенной подстроки. Если же подстрока не распознаётся, то она заносится в SText, и в дальнейшем никак дополнительно не обрабатывается.
 
 \begin{lstlisting}[language=Haskell]
@@ -106,29 +104,67 @@ parseExpression str
     = SToken (CompileInfo (extractCInfo str)) (parseExpression . dropCInfo $ str)
   | isStartsWithKeyword str
     = SToken (Keyword (extractKeyword str)) (parseExpression . dropKeyword $ str)
+  | otherwise
+    = SText (extractWord str ) (parseExpression . dropWord $ str)
 \end{lstlisting}
 
-После построения выражения типа SDoc, функция-визитор осуществляет проход по нему. Подвыражения типа SToken окрашиваются и преобразуются в тип SText с удалением информации о содержащемся типе. Окрашивание происходит добавлением ANSI символов. Полученный список строк конкатенируется и выводится пользователю.
+После построения выражения типа SDoc, функция-визитор colorize осуществляет проход по нему. Подвыражения типа SToken окрашиваются и преобразуются в тип SText с удалением информации о содержащемся типе. Окрашивание происходит добавлением ANSI символов.
 
 \begin{lstlisting}[language=Haskell, caption=Окрашивание выражения]
-colorizeToken :: Token -> String
-
 colorize :: SDoc next -> SDoc next
 colorize SEmpty           = SEmpty
 colorize (SToken token n) = SText (colorizeToken token) (colorize n)
 colorize (SText str n)    = SText str (colorize n)
 \end{lstlisting}
 
-Функция добавления ANSI символов colorizeToken имеет следующий вид.
-\begin{lstlisting}[language=Haskell]
-colorizeToken :: SColor -> String -> String
-colorizeToken col str = (show col) ++ str ++ (show getDefaultColor)
+Функция colorizeToken используется для окраски выражения, содержащегося в подвыражении. Он использует информацию, представленную типом Token для выбора цвета окраски данной строки.
+
+\begin{lstlisting}
+colorizeToken :: Token -> String
+colorizeToken (Arrow arrow) = clr SRed arrow
+colorizeToken (Bracket bracket) = clr SBlue bracket
+...
 \end{lstlisting}
 
-На скриншоте ниже представлен скриншот с примером работы полученной реализации. Запуск проводился на GHC 7.8.4. Продемонстрирована подсветка текстовых и численных констант, а также встроенных в GHC классов и классов типов.
+Список доступных цветов описан в типе-перечислении SColor.
+
+\begin{lstlisting}[language=Haskell]
+data SColor = 
+   SRed
+ | SBlue
+ | SGreen
+ | ...
+\end{lstlisting}
+
+Тип-перечисление SColor имеет реализацию класса типов Show. С его помощью можно получить строковое представление указанного цвета.
+
+\begin{lstlisting}[language=Haskell]
+instance Show SColor where
+  show SRed = "\x1b[31m"
+  show SGreen  = "\x1b[32b"
+  ...
+\end{lstlisting}
+
+Функция добавления ANSI символов clr получает строковое представление передаваемого цвета и имеет следующий вид.
+
+\begin{lstlisting}[language=Haskell]
+clr :: SColor -> String -> String
+clr col str = (show col) ++ str ++ (show getDefaultColor)
+\end{lstlisting}
+
+После данных преобразований, исходное выражение типа SDoc содержит последовательность строк с имеющимся цветовым выделением. Функция concat' проходит по полученному выражения, преобразуя его в строку.
+
+\begin{lstlisting}[language=Haskell]
+concat' :: SDoc next -> String
+concat' SEmpty = ""
+concat' (SText subStr subSDoc) = subStr ++ (concat' subSDoc)
+\end{lstlisting}
+
+
+На скриншоте ниже представлен скриншот с примером работы полученной реализации. Запуск проводился на GHC версии 7.8.4. Было продемонстрировано цветовое выделение текстовых и численных констант, а также встроенных в GHC типов и классов типов.
+
 
 \centerline{\includegraphics[scale=0.75]{img/example.png}}
-
 \subsection{Сравнение реализаций}
 В рамках сравнения реализаций, рассмотрим скрипт ghci-color, используемый для задачи окрашивания вывода [2].
 
@@ -280,6 +316,10 @@ mkExpectedActualMsg exp_ty act_ty
   = vcat [ colorize cRed $ ptext (text "Expected type:") <+> cppr exp_ty
          , colorize cRed $ ptext (text "  Actual type:") <+> cppr act_ty ]
 \end{lstlisting}
+
+На приведённом скриншоте иллюстрируется полученное цветовое выделение.
+
+\centerline{\includegraphics{img/example1.png}}
 
 Функция srcParseErr используется в парсере компилятора GHC. Она генерирует сообщение об ошибки в пользовательском вводе.
 
